@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tfoi 웹 제어</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            background-color: #162447; /* 세련된 네이비 */
+            color: white;
+        }
+        .container { 
+            display: flex; 
+            justify-content: space-around; 
+            margin-top: 20px; 
+        }
+        .box { 
+            width: 45%; 
+            padding: 20px; 
+            background: #f4a261; /* 부드러운 주황색 */
+            color: white; 
+            border-radius: 10px; 
+            box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.3);
+        }
+        .btn { 
+            margin: 10px; 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            border: none;
+        }
+        .route-container { 
+            background: #888888; 
+            padding: 15px; 
+            margin-top: 10px; 
+            border-radius: 5px; 
+        }
+        .coordinates { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            margin-top: 10px; 
+        }
+        .coord-btn { 
+            background: white; 
+            padding: 5px 10px; 
+            margin: 5px; 
+            border-radius: 5px; 
+            border: none; 
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tfoi 웹 제어</h1>
+    <button class="btn" onclick="toggleMode()">SLAM / Navigation 전환</button>
+    
+    <div class="container">
+        <!-- 📌 SLAM Mapping UI -->
+        <div class="box" id="slamBox">
+            <h2>SLAM Mapping</h2>
+            <p id="slamStatus">SLAM-Mapping 중이 아님</p>
+            <button class="btn" onclick="startSLAM()">SLAM 시작</button>
+            <button class="btn" onclick="stopSLAM()">SLAM 종료</button>
+        </div>
+
+        <!-- 📌 Navigation UI -->
+        <div class="box" id="navBox">
+            <h2>Navigation 자율주행</h2>
+            <p id="navStatus">대기 중...</p>
+            <button class="btn" onclick="saveCurrentPath()">현재 경로 저장</button>
+            <button class="btn" onclick="loadRoutes()">경로 불러오기</button>
+            
+            <!-- 📌 동적으로 경로 목록을 표시할 공간 -->
+            <div id="route-list"></div>
+        </div>
+    </div>
+
+    <script>
+        let isSLAMMode = true;
+        function toggleMode() {
+            isSLAMMode = !isSLAMMode;
+            document.getElementById("slamBox").style.display = isSLAMMode ? "block" : "none";
+            document.getElementById("navBox").style.display = isSLAMMode ? "none" : "block";
+        }
+
+        function startSLAM() { document.getElementById("slamStatus").textContent = "SLAM-Mapping 중..."; }
+        function stopSLAM() { document.getElementById("slamStatus").textContent = "SLAM-Mapping 중이 아님"; }
+        function saveCurrentPath() { alert("현재 좌표를 저장합니다."); }
+
+        // 📌 서버에서 경로 불러오기
+        function loadRoutes() {
+            fetch("http://localhost:3000/routes")
+                .then(response => response.json())
+                .then(data => {
+                    console.log("📍 불러온 경로 리스트:", data.routes);
+                    
+                    if (data.routes.length === 0) {
+                        alert("저장된 경로가 없습니다.");
+                        return;
+                    }
+
+                    displayRoutes(data.routes);
+                })
+                .catch(error => console.error("❌ 경로 불러오기 오류:", error));
+        }
+
+        // 📌 저장된 모든 경로 목록 표시
+        function displayRoutes(routes) {
+            const routeList = document.getElementById("route-list");
+            routeList.innerHTML = ""; // 기존 리스트 초기화
+
+            routes.forEach(routeName => {
+                const routeButton = document.createElement("button");
+                routeButton.textContent = `📌 ${routeName}`;
+                routeButton.classList.add("coord-btn");
+                routeButton.style.background = "#ffffff";
+                routeButton.style.color = "#333";
+                routeButton.addEventListener("click", () => displayRoute(routeName));
+
+                routeList.appendChild(routeButton);
+            });
+        }
+
+        // 📌 특정 경로의 좌표 불러오기 및 표시
+        function displayRoute(routeName) {
+            fetch(`http://localhost:3000/route/${routeName}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log(`📍 ${routeName}의 좌표:`, data.coordinates);
+
+                    const routeList = document.getElementById("route-list");
+                    routeList.innerHTML = ""; // 기존 리스트 초기화
+
+                    const routeContainer = document.createElement("div");
+                    routeContainer.classList.add("route-container");
+
+                    // 경로 제목 추가
+                    const routeTitle = document.createElement("h3");
+                    routeTitle.textContent = `📌 ${routeName}`;
+                    routeContainer.appendChild(routeTitle);
+
+                    const coordContainer = document.createElement("div");
+                    coordContainer.classList.add("coordinates");
+
+                    data.coordinates.forEach(coord => {
+                        const coordButton = document.createElement("button");
+                        coordButton.textContent = coord;
+                        coordButton.classList.add("coord-btn");
+                        coordButton.addEventListener("click", () => navigateTo(coord));
+
+                        coordContainer.appendChild(coordButton);
+                    });
+
+                    routeContainer.appendChild(coordContainer);
+                    routeList.appendChild(routeContainer);
+                })
+                .catch(error => console.error(`❌ ${routeName} 좌표 불러오기 오류:`, error));
+        }
+
+        // 📌 특정 좌표로 자율주행 실행 (향후 실제 이동 기능 추가 가능)
+        function navigateTo(coordinate) {
+            alert(`🚗 ${coordinate}로 이동합니다.`);
+            // 이후 로봇에게 해당 좌표로 이동하도록 명령하는 코드 추가 가능
+        }
+    </script>
+</body>
+</html>
