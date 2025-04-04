@@ -21,6 +21,8 @@ document.getElementById("load-routes").addEventListener("click", () => {
                     routeContainer.appendChild(routeButton);
                     routeList.appendChild(routeContainer);
                 });
+            } else {
+                console.error("❌ 서버에서 받은 데이터가 올바르지 않습니다.");
             }
         })
         .catch(error => console.error("❌ 경로 불러오기 오류:", error));
@@ -31,7 +33,7 @@ function loadCoordinates(routeName, container) {
     fetch(`http://localhost:3000/route/${routeName}`)
         .then(response => response.json())
         .then(data => {
-            if (data.coordinates) {
+            if (data.coordinates && data.coordinates.length > 0) {
                 console.log(`📍 ${routeName}의 좌표:`, data.coordinates);
                 
                 // 기존 좌표 목록 제거 후 추가
@@ -44,10 +46,13 @@ function loadCoordinates(routeName, container) {
                 coordContainer.innerHTML = "";
 
                 data.coordinates.forEach(coord => {
-                    const coordButton = document.createElement("button");
-                    coordButton.textContent = coord;
-                    coordContainer.appendChild(coordButton);
+                    const coordItem = document.createElement("div");
+                    coordItem.textContent = coord;
+                    coordItem.classList.add("coordinate-item");
+                    coordContainer.appendChild(coordItem);
                 });
+            } else {
+                console.error(`⚠️ ${routeName} 좌표 데이터가 없습니다.`);
             }
         })
         .catch(error => console.error(`❌ ${routeName} 좌표 불러오기 오류:`, error));
