@@ -7,24 +7,68 @@ const rosnodejs = require("rosnodejs");
 const app = express();
 const port = 3000;
 
-// CORS 및 JSON 처리
 app.use(cors());
 app.use(express.json());
-
-// 정적 파일 제공 (index.html 포함)
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ROS 초기화
 rosnodejs.initNode("/move_base_client").then((rosNode) => {
     const goalPub = rosNode.advertise("/move_base/goal", "move_base_msgs/MoveBaseActionGoal");
-
     console.log("✅ ROS Publisher 설정 완료!");
 
-    // 📌 테스트용 경로 리스트
+    let latestPose = null;
+    let latestPointCloudRaw = null;
+    let latestMapData = null;
+
+    // ✅ PointCloud2 파싱 함수 추가
+    function parsePointCloud2(msg) {
+        const buffer = Buffer.from(msg.data);
+        const points = [];
+        const offsetX = 0;
+        const offsetY = 4;
+        const offsetZ = 8;
+
+        for (let i = 0; i < msg.width; i++) {
+            const base = i * msg.point_step;
+            const x = buffer.readFloatLE(base + offsetX);
+            const y = buffer.readFloatLE(base + offsetY);
+            const z = buffer.readFloatLE(base + offsetZ);
+            points.push({ x, y, z });
+        }
+
+        return points;
+    }
+
+    rosNode.subscribe('/map', 'nav_msgs/OccupancyGrid', (msg) => {
+        console.log("📍 맵 데이터 수신 완료");
+        latestMapData = {
+            width: msg.info.width,
+            height: msg.info.height,
+            resolution: msg.info.resolution,
+            origin: msg.info.origin,
+            data: msg.data
+        };
+    });
+
+    rosNode.subscribe('/loas_localization_client/current_pose', 'geometry_msgs/PoseStamped', (msg) => {
+        latestPose = {
+            position: {
+                x: msg.pose.position.x,
+                y: msg.pose.position.y,
+                z: msg.pose.position.z
+            },
+            orientation: msg.pose.orientation
+        };
+    });
+
+    // ✅ 포인트 클라우드 수신 및 원본 저장
+    rosNode.subscribe('/lslidar_point_cloud', 'sensor_msgs/PointCloud2', (msg) => {
+        latestPointCloudRaw = msg;
+    });
+
     const routes = {
         "경로1": [
             { x: 4.446, y: -1.609, z: -0.561, orientation: { x: 0.0, y: 0.0, z: 0.002, w: 0.999 } },
@@ -35,7 +79,14 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
         ]
     };
 
-    // 📌 경로 리스트 조회 API
+    app.get("/map", (req, res) => {
+        if (latestMapData) {
+            res.json(latestMapData);
+        } else {
+            res.status(503).json({ error: "맵 데이터가 아직 수신되지 않았습니다." });
+        }
+    });
+
     app.get("/routes", (req, res) => {
         res.json({
             message: "저장된 경로 리스트",
@@ -43,7 +94,6 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
         });
     });
 
-    // 📌 특정 경로의 좌표 조회 API
     app.get("/route/:name", (req, res) => {
         const routeName = req.params.name;
         if (routes[routeName]) {
@@ -58,13 +108,13 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
 
     app.post("/set_goal", (req, res) => {
         const { route, index } = req.body;
-    
+
         if (!routes[route] || index === undefined || index < 0 || index >= routes[route].length) {
             return res.status(400).json({ error: "올바르지 않은 경로 또는 인덱스입니다." });
         }
-    
-        const target = routes[route][index];  // 선택한 인덱스의 좌표
-    
+
+        const target = routes[route][index];
+
         const goalMsg = {
             header: {
                 stamp: rosnodejs.Time.now(),
@@ -91,33 +141,48 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
                 }
             }
         };
-    
+
         goalPub.publish(goalMsg);
         console.log("📌 목표 위치 전송 완료:", goalMsg);
-    
+
         res.json({ message: `목표 위치 설정 완료 (경로: ${route}, 인덱스: ${index})`, goal: target });
     });
-    
 
-    // 📌 HTTP 서버 실행
     const server = app.listen(port, () => {
         console.log(`🚀 서버 실행 중: http://localhost:${port}`);
         console.log("📍 저장된 경로 리스트:", Object.keys(routes));
     });
 
-    // 📌 WebSocket 서버 추가
     const wss = new WebSocketServer({ server });
 
     wss.on("connection", (ws) => {
         console.log("✅ WebSocket 클라이언트 연결됨!");
 
-        setInterval(() => {
+        const intervalId = setInterval(() => {
             const fakeOdomData = {
                 x: (Math.random() * 10).toFixed(2),
                 y: (Math.random() * 10).toFixed(2),
                 theta: (Math.random() * Math.PI * 2).toFixed(2),
             };
-            ws.send(JSON.stringify(fakeOdomData));
+
+            // ✅ PointCloud 변환된 좌표 포함
+            const parsedPointCloud = latestPointCloudRaw
+                ? {
+                    header: latestPointCloudRaw.header,
+                    width: latestPointCloudRaw.width,
+                    height: latestPointCloudRaw.height,
+                    point_step: latestPointCloudRaw.point_step,
+                    row_step: latestPointCloudRaw.row_step,
+                    points: parsePointCloud2(latestPointCloudRaw).slice(0, 200) // 최대 200개만 전송 (과부하 방지)
+                }
+                : null;
+
+            ws.send(JSON.stringify({
+                odom: fakeOdomData,
+                current_pose: latestPose,
+                point_cloud: parsedPointCloud,
+                map: latestMapData
+            }));
         }, 2000);
 
         ws.on("message", (message) => {
@@ -126,6 +191,7 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
 
         ws.on("close", () => {
             console.log("🔌 WebSocket 연결 종료됨");
+            clearInterval(intervalId);
         });
     });
 });

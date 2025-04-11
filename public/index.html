@@ -5,22 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tfoi 웹 제어</title>
     <script src="https://cdn.jsdelivr.net/npm/roslib@1.1.0/build/roslib.min.js"></script>
-    <script src="http://localhost:9090/roslib.js"></script> <!-- ROSBridge 연결 -->
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background-color: #162447; color: white; }
-        .container { display: flex; justify-content: space-around; margin-top: 20px; }
-        .box { width: 45%; padding: 20px; background: #f4a261; color: white; border-radius: 10px; box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.3); transition: opacity 0.5s ease-in-out; }
+        .container { display: flex; justify-content: space-around; margin-top: 20px; flex-wrap: wrap; }
+        .box { width: 45%; padding: 20px; background: #f4a261; color: white; border-radius: 10px; box-shadow: 3px 3px 10px rgba(0, 0, 0, 0.3); transition: opacity 0.5s ease-in-out; margin-bottom: 20px; }
         .hidden { display: none; opacity: 0; }
-        .btn { margin: 10px; padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; }
-        .route-container { background: #888888; padding: 15px; margin-top: 10px; border-radius: 5px; }
+        .btn { margin: 10px; padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background-color: #1f4068; color: white; }
+        .route-container { background: #444; padding: 15px; margin-top: 10px; border-radius: 5px; color: white; }
         .coordinates { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
-        .coord-btn { background: white; padding: 5px 10px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; }
+        .coord-btn { background: white; color: black; padding: 5px 10px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; }
+        #mapCanvas { width: 600px; height: 600px; border: 1px solid white; margin-top: 20px; background-color: white; }
     </style>
 </head>
 <body>
     <h1>Tfoi 웹 제어</h1>
     <button class="btn" onclick="toggleMode()">SLAM / Navigation 전환</button>
-    
+
     <div class="container">
         <div class="box" id="slamBox">
             <h2>SLAM Mapping</h2>
@@ -35,25 +35,65 @@
             <button class="btn" onclick="loadRoutes()">경로 불러오기</button>
             <div id="route-list"></div>
         </div>
+
+        <div class="box" id="mapBox">
+            <h2>맵</h2>
+            <canvas id="mapCanvas"></canvas>
+        </div>
     </div>
 
     <script>
         let isSLAMMode = true;
         let ros, goalTopic;
+        let mapData = null;
 
-        // ROS 연결 설정
         function initROS() {
             ros = new ROSLIB.Ros({ url: "ws://localhost:9090" });
             ros.on("connection", () => console.log("✅ ROS 연결 성공"));
             ros.on("error", (error) => console.error("❌ ROS 연결 오류:", error));
             ros.on("close", () => console.log("❌ ROS 연결 종료"));
 
-            // move_base/goal 퍼블리시 토픽 설정
             goalTopic = new ROSLIB.Topic({
                 ros: ros,
                 name: "/move_base_simple/goal",
                 messageType: "geometry_msgs/PoseStamped"
             });
+
+            fetchMapData();
+        }
+
+        function fetchMapData() {
+            fetch("http://localhost:3000/map")
+                .then(response => response.json())
+                .then(data => {
+                    mapData = data;
+                    drawMap();
+                })
+                .catch(error => console.error("❌ 맵 데이터 로딩 오류:", error));
+        }
+
+        function drawMap() {
+            if (!mapData) return;
+
+            const canvas = document.getElementById('mapCanvas');
+            const ctx = canvas.getContext('2d');
+            const scale = 1;
+            const mapWidth = mapData.width;
+            const mapHeight = mapData.height;
+
+            canvas.width = mapWidth * scale;
+            canvas.height = mapHeight * scale;
+
+            for (let y = 0; y < mapHeight; y++) {
+                for (let x = 0; x < mapWidth; x++) {
+                    const index = y * mapWidth + x;
+                    const value = mapData.data[index];
+                    if (value === 0) ctx.fillStyle = 'white';
+                    else if (value === 100) ctx.fillStyle = 'black';
+                    else ctx.fillStyle = 'gray';
+                    ctx.fillRect(x * scale, y * scale, scale, scale);
+                }
+            }
         }
 
         function toggleMode() {
@@ -62,14 +102,19 @@
             document.getElementById("navBox").classList.toggle("hidden");
         }
 
-        function startSLAM() { document.getElementById("slamStatus").textContent = "SLAM-Mapping 중..."; }
-        function stopSLAM() { document.getElementById("slamStatus").textContent = "SLAM-Mapping 중이 아님"; }
+        function startSLAM() {
+            document.getElementById("slamStatus").textContent = "SLAM-Mapping 중...";
+        }
+
+        function stopSLAM() {
+            document.getElementById("slamStatus").textContent = "SLAM-Mapping 중이 아님";
+        }
 
         function loadRoutes() {
             fetch("http://localhost:3000/routes")
                 .then(response => response.json())
                 .then(data => {
-                    if (data.routes.length === 0) {
+                    if (!data.routes || data.routes.length === 0) {
                         alert("저장된 경로가 없습니다.");
                         return;
                     }
@@ -125,7 +170,7 @@
         function navigateTo(coord) {
             alert(`🚗 이동 목표: (${coord.x.toFixed(2)}, ${coord.y.toFixed(2)})`);
 
-            let goalMsg = new ROSLIB.Message({
+            const goalMsg = new ROSLIB.Message({
                 header: {
                     stamp: { secs: 0, nsecs: 0 },
                     frame_id: "map"
@@ -140,7 +185,6 @@
             console.log(`🚀 이동 명령 퍼블리시: ${JSON.stringify(goalMsg)}`);
         }
 
-        // 페이지 로드 시 ROS 초기화
         window.onload = initROS;
     </script>
 </body>
