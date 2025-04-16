@@ -30,15 +30,19 @@ rosnodejs.initNode("/move_base_client").then((rosNode) => {
         const offsetX = 0;
         const offsetY = 4;
         const offsetZ = 8;
-
+    
         for (let i = 0; i < msg.width; i++) {
             const base = i * msg.point_step;
             const x = buffer.readFloatLE(base + offsetX);
             const y = buffer.readFloatLE(base + offsetY);
             const z = buffer.readFloatLE(base + offsetZ);
-            points.push({ x, y, z });
+    
+            // NaN 혹은 유효 범위를 벗어난 점 제외
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                points.push({ x, y, z });
+            }
         }
-
+    
         return points;
     }
 

@@ -46,6 +46,7 @@
         let isSLAMMode = true;
         let ros, goalTopic;
         let mapData = null;
+        let pointCloudData = [];
 
         function initROS() {
             ros = new ROSLIB.Ros({ url: "ws://localhost:9090" });
@@ -60,16 +61,28 @@
             });
 
             fetchMapData();
+            tetchPointCloud();
+            setInterval(fetchPointCloud, 1000); // 1초 주기로 point cloud fetch 수행
         }
 
-        function fetchMapData() {
-            fetch("http://localhost:3000/map")
-                .then(response => response.json())
-                .then(data => {
-                    mapData = data;
-                    drawMap();
+        // function fetchMapData() {
+        //     fetch("http://localhost:3000/map")
+        //         .then(response => response.json())
+        //         .then(data => {
+        //             mapData = data;
+        //             drawMap();
+        //         })
+        //         .catch(error => console.error("❌ 맵 데이터 로딩 오류:", error));
+        // }
+
+        function fetchPointCloud() {
+            fetch("http://localhost:3000/ls_point_cloud")
+                .then(response.json())
+                .then(data=> {
+                    pointCloudData = data.points || [];
+                    drawMap(); // 포인트 클라우드 레이어에서 맵 그림
                 })
-                .catch(error => console.error("❌ 맵 데이터 로딩 오류:", error));
+                .catch(error => console.error("❌ 포인트 클라우드 로딩 오류:", error));
         }
 
         function drawMap() {
@@ -84,6 +97,7 @@
             canvas.width = mapWidth * scale;
             canvas.height = mapHeight * scale;
 
+            // 맵 그림
             for (let y = 0; y < mapHeight; y++) {
                 for (let x = 0; x < mapWidth; x++) {
                     const index = y * mapWidth + x;
@@ -94,6 +108,17 @@
                     ctx.fillRect(x * scale, y * scale, scale, scale);
                 }
             }
+
+            drawPointCloud(ctx, scale); // point cloud 그림
+        }
+
+        function drawPointCloud(ctx, scale){
+            ctx.fillStyle = 'blue';
+            pointCloudData.forEach(point => {
+                const x = Math.floor(point.x * scale);
+                const y = Math.floor(point.y * scale);
+                ctx.fillRect(x, y, 2, 2);               // 점의 크기 2x2 
+            });
         }
 
         function toggleMode() {
